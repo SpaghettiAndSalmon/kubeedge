@@ -74,24 +74,35 @@ the messages are delivered from the cloud to the edge.
 
 <img src="../images/reliable-message-delivery/reliablemessage-workflow.PNG">
 
-- Key-Value-Store stores the latest resourceVersion of resource that has been sent
+- We use K8s CRD stores the latest resourceVersion of resource that has been sent
  successfully to edge. When cloudcore restarts or starts normally, 
  it will check the resourceVersion to avoid sending old messages.
  
-- Controllers send the messages to the Cloudhub, and MessageDispatcher will send messages 
+- EdgeController and devicecontroller send the messages to the Cloudhub, and MessageDispatcher will send messages 
 to corresponding NodeMessageQueue according to the node name in message.
 
 - CloudHub will sequentially send data from the NodeMessageQueue to the corresponding edge node,
  and will also store the message ID in an ACK channel. When the ACK message from the edge node received,
- ACK channel will trigger to save the message resourceVersion to Key/Value-Store, and send the next message.
+ ACK channel will trigger to save the message resourceVersion to K8s as CRD, and send the next message.
  
 - When the edgecore receives the message, it will first save the message to the local datastore and 
 then return an ACK message to the cloud.
 
-- If cloudhub does not receive an ACK message within the interval, it will keep resending the message.
+- If cloudhub does not receive an ACK message within the interval, it will keep resending the message 5 times. 
+If all 5 retries fail, cloudhub will discard the event. SyncController will handling these failed events.
 
 - Even if the edge node receives the message, the returned ACK message may lost during transmission.
  In this case, cloudhub will send the message again and the edge can handle the duplicate message.
+
+### SyncController
+
+SyncController will periodically compare the saved objects resourceVersion with the objects in K8s, 
+and then trigger the events such as retry and deletion.
+
+When cloudhub add events to nodeMessageQueue, it will be compared with the corresponding object in nodeMessageQueue.
+If the object in nodeMessageQueue is newer, it will directly discard these events.
+
+<img src="../images/reliable-message-delivery/sync-controller.PNG">
 
 ### Message Queue
 
@@ -133,6 +144,78 @@ AckMessage.ParentID = receivedMessage.ID
 AckMessage.Operation = "ack"
 ```
 
+### ReliableSync CRD
+
+We use K8s CRD to save the resourceVersion of objects that have been successfully persisted to the edge.
+
+We designed two types of CRD to save the resourceVersion. ClusterObjectSync is used to save the cluster
+scoped object and ObjectSync is used to save the namesapce scoped object. 
+Their names consist of the related node name and object UUID.
+
+#### The ClusterObjectSync
+
+```go
+type ClusterObjectSync struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ClusterObjectSyncSpec   `json:"spec,omitempty"`
+	Status ClusterObjectSyncStatus `json:"spec,omitempty"`
+}
+
+// ClusterObjectSyncSpec stores the details of objects that sent to the edge.
+type ClusterObjectSyncSpec struct {
+    // Required: ObjectGroupVerion is the group and version of the object
+    // that was successfully sent to the edge node.
+    ObjectGroupVerion string `json:"objectGroupVerion,omitempty"`
+	// Required: ObjectKind is the type of the object
+	// that was successfully sent to the edge node.
+	ObjectKind string `json:"objectKind,omitempty"`
+	// Required: ObjectName is the name of the object
+	// that was successfully sent to the edge node.
+	ObjectName string `json:"objectName,omitempty"`
+}
+
+// ClusterObjectSyncSpec stores the resourceversion of objects that sent to the edge.
+type ClusterObjectSyncStatus struct {
+	// Required: ObjectResourceVersion is the resourceversion of the object
+	// that was successfully sent to the edge node.
+	ObjectResourceVersion string `json:"objectResourceVersion,omitempty"`
+}
+```
+
+#### The ObjectSync
+
+```go
+type ClusterObjectSync struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ObjectSyncSpec   `json:"spec,omitempty"`
+	Status ObjectSyncStatus `json:"spec,omitempty"`
+}
+
+// ObjectSyncSpec stores the details of objects that sent to the edge.
+type ObjectSyncSpec struct {
+    // Required: ObjectGroupVerion is the group and version of the object 
+    // that was successfully sent to the edge node. 
+    ObjectGroupVerion string `json:"objectGroupVerion,omitempty"`
+	// Required: ObjectKind is the type of the object
+	// that was successfully sent to the edge node.
+	ObjectKind string `json:"objectKind,omitempty"`
+	// Required: ObjectName is the name of the object
+	// that was successfully sent to the edge node.
+	ObjectName string `json:"objectName,omitempty"`
+}
+
+// ClusterObjectSyncSpec stores the resourceversion of objects that sent to the edge.
+type ObjectSyncStatus struct {
+	// Required: ObjectResourceVersion is the resourceversion of the object
+	// that was successfully sent to the edge node.
+	ObjectResourceVersion string `json:"objectResourceVersion,omitempty"`
+}
+```
+
 ## Exception scenarios/Corner cases handling
 
 ### CloudCore restart
@@ -140,9 +223,9 @@ AckMessage.Operation = "ack"
 - When cloudcore restarts or starts normally, it will check the resourceVersion to avoid sending old messages.
 
 - During cloudcore restart, if some objects are deleted, the delete event may lost at this time. 
-An object GC mechanism is needed here to ensure the deletion: compare whether the objects stored 
-in Key-Value Store exist in K8s. If not, then cloudcore will generate & send a delete event to the edge and 
-delete the object in Key-Value Store when ACK received.
+The SyncController will handle this situation. The object GC mechanism is needed here to ensure the deletion: 
+compare whether the objects stored in CRD exist in K8s. If not, then SyncController will generate & send a delete event
+to the edge and delete the object in CRD when ACK received.
 
 ### EdgeCore restart
 
