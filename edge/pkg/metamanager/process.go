@@ -352,6 +352,12 @@ func (m *metaManager) processDelete(message model.Message) {
 		sendToCloud(resp)
 		return
 	}
+
+	if resType == model.ResourceTypePod && message.GetSource() == modules.EdgedModuleName {
+		sendToCloud(&message)
+		return
+	}
+
 	// Notify edged
 	sendToEdged(&message, false)
 	resp := message.NewRespByMessage(&message, OK)

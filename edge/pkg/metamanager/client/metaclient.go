@@ -94,6 +94,7 @@ func New() CoreInterface {
 //SendInterface is to sync interface
 type SendInterface interface {
 	SendSync(message *model.Message) (*model.Message, error)
+	Send(message *model.Message)
 }
 
 type send struct {
@@ -122,4 +123,8 @@ func (s *send) SendSync(message *model.Message) (*model.Message, error) {
 
 	})
 	return &resp, err
+}
+
+func (s *send) Send(message *model.Message) {
+	beehiveContext.Send(metamanager.MetaManagerModuleName, *message)
 }
