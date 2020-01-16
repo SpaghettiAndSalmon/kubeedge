@@ -48,6 +48,8 @@ type Configure struct {
 	QueryNodeBuffer int
 	// UpdateNodeBuffer is the size of channel which save update node message from edge
 	UpdateNodeBuffer int
+	// DeletePodBuffer is the size of channel which save delete pod message from edge
+	DeletePodBuffer int
 
 	// ContextSendModule is the name send message to
 	ContextSendModule string
@@ -96,6 +98,8 @@ type Configure struct {
 	QueryNodeWorkers int
 	// UpdateNodeWorkers is the count of goroutines of update node
 	UpdateNodeWorkers int
+	// DeletePodWorkers is the count of goroutines of delete pod
+	DeletePodWorkers int
 }
 
 func InitConfigure() {
@@ -196,6 +200,12 @@ func InitConfigure() {
 		if err != nil {
 			// Guaranteed forward compatibility @kadisi
 			unb = constants.DefaultUpdateNodeBuffer
+			klog.Infof("can not get controller.buffer.update-node key, use default value %v", unb)
+		}
+		dpb, err := config.CONFIG.GetValue("controller.buffer.delete-pod").ToInt()
+		if err != nil {
+			// Guaranteed forward compatibility @kadisi
+			dpb = constants.DefaultUpdateNodeBuffer
 			klog.Infof("can not get controller.buffer.update-node key, use default value %v", unb)
 		}
 		smn, err := config.CONFIG.GetValue("controller.context.send-module").ToString()
@@ -332,6 +342,12 @@ func InitConfigure() {
 			unw = constants.DefaultUpdateNodeWorkers
 			klog.Infof("can not get key controller.load.update-node-workers, use default value %v", unw)
 		}
+		dpw, err := config.CONFIG.GetValue("controller.load.delete-pod-workers").ToInt()
+		if err != nil {
+			// Guaranteed forward compatibility @kadisi
+			dpw = constants.DefaultUpdateNodeWorkers
+			klog.Infof("can not get key controller.load.update-node-workers, use default value %v", unw)
+		}
 		if len(errs) != 0 {
 			for _, e := range errs {
 				klog.Errorf("%v", e)
@@ -356,6 +372,7 @@ func InitConfigure() {
 			QueryVolumeAttachmentBuffer:       qvab,
 			QueryNodeBuffer:                   qnb,
 			UpdateNodeBuffer:                  unb,
+			DeletePodBuffer:                   dpb,
 			ContextSendModule:                 smn,
 			ContextReceiveModule:              rmn,
 			ContextResponseModule:             resn,
@@ -378,6 +395,7 @@ func InitConfigure() {
 			QueryVolumeAttachmentWorkers:      qvaw,
 			QueryNodeWorkers:                  qnw,
 			UpdateNodeWorkers:                 unw,
+			DeletePodWorkers:                  dpw,
 		}
 		klog.Infof("init edgecontroller config successfully, config info %++v", c)
 	})
